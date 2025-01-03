@@ -397,7 +397,64 @@ vdErrorCallback (void *pvUser UNUSED, int rc, const char *file,
 // partitions.
 //
 //int VDRead(PVBOXHDD pDisk, uint64_t uOffset, void *pvBuf, size_t cbRead, int ii );
+typedef struct {
+    uint8_t signature[8];
+    uint32_t revision;
+    uint32_t header_size;
+    uint32_t header_crc;
+    uint32_t reserved;
+    uint64_t header_lba;
+    uint64_t backup_lba;
+    uint64_t first_usable_lba;
+    uint64_t last_usable_lba;
+    uint8_t disk_guid[16];
+    uint64_t partition_entry_lba;
+    uint32_t num_partition_entries;
+    uint32_t sizeof_partition_entry;
+    uint32_t partition_entry_array_crc;
+} GPT_HEADER;
 
+typedef struct {
+    uint8_t partition_type_guid[16];
+    uint8_t unique_partition_guid[16];
+    uint64_t starting_lba;
+    uint64_t ending_lba;
+    uint64_t attributes;
+    uint16_t partition_name[36];
+} GPT_ENTRY;
+#define GPT_ENTRY_SIZE 128
+
+void 
+parseGptPartitionTable(void)
+{
+	GPT_HEADER  header;
+	GPT_ENTRY   entries[GPT_ENTRY_SIZE];
+	int         entry_size = 0;
+	GPT_ENTRY   gentry_empty;
+    memset(&gentry_empty, 0, sizeof (GPT_ENTRY));
+
+	// read gpt header 
+	DISKread (512, &header, sizeof(GPT_HEADER);
+	
+    if (memcmp(header.signature, "EFI PART", 8) != 0) {
+        fprintf(stderr, "Not a valid GPT disk\n");
+        return 1;
+    }
+
+	entry_size = header.number_partition_entries * sizeof_partition_entry;
+	// read gpt entry 
+	DISKread (header.partition_entry_lba * 512, entries, entry_size);
+
+	for (int i = 0; i < header.number_partition_entries; i++) {
+		if (!memcmp(gentry, &gentry_empty, sizeof(partition_entry)))
+            continue;
+		
+		Partition *p = partitionTable + i + 1;
+		p->no = i+1; // 0 was used
+		p->offset = (off_t) (entries[i].starting_lba) * BLOCKSIZE;
+        p->size = (off_t) ((entries[i].ending_lba - entries[i].starting_lba) * BLOCKSIZE;
+	}
+}
 void
 initialisePartitionTable (void)
 {
@@ -424,7 +481,9 @@ initialisePartitionTable (void)
 	if (mbrb.signature != 0xaa55)
 		usageAndExit ("Invalid MBR found on image with signature 0x%04hX",
 									mbrb.signature);
-
+	if (mbrb.descriptor[0].type == 0xee) {
+		parseGptPartitionTable();
+	}
 //
 // Process the four physical partition entires in the MBR
 //
