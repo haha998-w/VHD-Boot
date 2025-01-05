@@ -398,7 +398,7 @@ vdErrorCallback (void *pvUser UNUSED, int rc, const char *file,
 //
 //int VDRead(PVBOXHDD pDisk, uint64_t uOffset, void *pvBuf, size_t cbRead, int ii );
 typedef struct {
-    uint8_t signature[8];
+    uint8_t  signature[8];
     uint32_t revision;
     uint32_t header_size;
     uint32_t header_crc;
@@ -407,7 +407,7 @@ typedef struct {
     uint64_t backup_lba;
     uint64_t first_usable_lba;
     uint64_t last_usable_lba;
-    uint8_t disk_guid[16];
+    uint8_t  disk_guid[16];
     uint64_t partition_entry_lba;
     uint32_t num_partition_entries;
     uint32_t sizeof_partition_entry;
@@ -423,37 +423,61 @@ typedef struct {
     uint16_t partition_name[36];
 } GPT_ENTRY;
 #define GPT_ENTRY_SIZE 128
+uint8_t block[512];
+int measure_block_size (void) {
+	int i = 1, offset, size = 512;
 
+	uint64_t signature;
+	for (; i < 9; i++) {
+		offset = i * size;
+		signature = 0;
+
+		DISKread (offset, block, 512);
+		memcpy (&signature, block, 8);
+
+		#define GPT_HEADER_SIGNATURE 0x5452415020494645LL
+		if (signature == GPT_HEADER_SIGNATURE) return offset;
+	}
+	return 0;
+}
 void 
 parseGptPartitionTable(void)
 {
-	GPT_HEADER  header;
-	GPT_ENTRY   entries[GPT_ENTRY_SIZE];
-	int         entry_size = 0;
+	GPT_HEADER  *header;
+	GPT_ENTRY   *entries;
 	GPT_ENTRY   gentry_empty;
-    memset(&gentry_empty, 0, sizeof (GPT_ENTRY));
+	int         total_entry_size = 0;
+	memset(&gentry_empty, 0, sizeof (GPT_ENTRY));
 
 	// read gpt header 
-	DISKread (512, &header, sizeof(GPT_HEADER);
-	
-    if (memcmp(header.signature, "EFI PART", 8) != 0) {
-        fprintf(stderr, "Not a valid GPT disk\n");
-        return 1;
-    }
-
-	entry_size = header.number_partition_entries * sizeof_partition_entry;
-	// read gpt entry 
-	DISKread (header.partition_entry_lba * 512, entries, entry_size);
-
-	for (int i = 0; i < header.number_partition_entries; i++) {
-		if (!memcmp(gentry, &gentry_empty, sizeof(partition_entry)))
-            continue;
-		
-		Partition *p = partitionTable + i + 1;
-		p->no = i+1; // 0 was used
-		p->offset = (off_t) (entries[i].starting_lba) * BLOCKSIZE;
-        p->size = (off_t) ((entries[i].ending_lba - entries[i].starting_lba) * BLOCKSIZE;
+	// Gpt header is in the disk's lba1, should confirm lba size.
+	int logical_blk_size = measure_block_size();
+	fprintf(stdin, "lba1_offset 0x%x\n", logical_blk_size);
+	if (0 == logical_blk_size) {
+		fprintf(stderr, "Not a valid GPT disk\n");
+		return ;
 	}
+	header = (GPT_HEADER*) block;
+
+	total_entry_size = header->num_partition_entries * header->sizeof_partition_entry;
+	// read gpt entry 
+	// TODO:total_entry_size always 128*128.If it's not,we should align upwards to the nearest 512 bytes.
+	entries = malloc (total_entry_size);
+	if (entries == NULL) {
+		return;
+	}
+	DISKread (header->partition_entry_lba * 512, entries, total_entry_size);
+	// if windows, num_partition_entries always 128. Even not used.
+	for (int i = 0; i < header->num_partition_entries; i++) {
+		if (!memcmp(&entries[i], &gentry_empty, sizeof(GPT_ENTRY)))
+			continue;
+
+		Partition *p = partitionTable + i + 1;
+		p->no = lastPartition = i + 1; // 0 was used
+		p->offset = (off_t) (entries[i].starting_lba) * BLOCKSIZE;
+		p->size = (off_t) (entries[i].ending_lba - entries[i].starting_lba) * BLOCKSIZE;
+	}
+	free (entries);
 }
 void
 initialisePartitionTable (void)
@@ -483,7 +507,7 @@ initialisePartitionTable (void)
 									mbrb.signature);
 	if (mbrb.descriptor[0].type == 0xee) {
 		parseGptPartitionTable();
-	}
+	} else {
 //
 // Process the four physical partition entires in the MBR
 //
@@ -550,6 +574,7 @@ initialisePartitionTable (void)
 				usageAndExit ("Logical partition chain broken");
 			uOffset = (ebr.chain).offset;
 		}
+	}
 	}
 //
 // Now print out the partition table
