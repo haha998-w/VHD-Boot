@@ -475,7 +475,7 @@ parseGptPartitionTable(void)
 		Partition *p = partitionTable + i + 1;
 		p->no = lastPartition = i + 1; // 0 was used
 		p->offset = (off_t) (entries[i].starting_lba) * BLOCKSIZE;
-		p->size = (off_t) (entries[i].ending_lba - entries[i].starting_lba) * BLOCKSIZE;
+		p->size = (off_t) (entries[i].ending_lba - entries[i].starting_lba + 1) * BLOCKSIZE;
 	}
 	free (entries);
 }
